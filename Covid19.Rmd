@@ -1,0 +1,139 @@
+---
+title: "DTSA 5301 - COVID-19 Report"
+author: "Ashish Bhutiani"
+date: "6/20/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+options(width = 80)
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE,tidy.opts=list(width.cutoff=60), size="small")
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+```
+
+# Question
+
+Was there a bigger spike in cases in Miami/Dade county after the curfew was lifted versus other counties in Florida that didn't have the curfew?
+
+# Data Source and Summary
+
+In order to attempt to answer this question, we will be using a dataset provided by Johns Hopkins University and is an aggregation of data from multiple sources.
+
+The URL for the repository holding the dataset is: https://github.com/CSSEGISandData/COVID-19
+
+```{r dataload}
+base_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_US.csv","time_series_covid19_deaths_US.csv")
+urls <- str_c(base_url,file_names)
+us_cases <- read.csv(urls[1])
+us_deaths <- read.csv(urls[2])
+```
+
+
+# Data Cleanup
+
+The information isn't exactly in the format we want to work with it in. We will perform the following data cleanup operations:
+
+* Pivot Cases and Deaths to create a vertical vs horizontal dataset
+* Join cases and deaths
+* Convert the date column to a date type
+* Filter on only records where cases are more than 0 and the state is Florida.
+
+```{r data_clean}
+pivoted_cases <- us_cases %>%
+  pivot_longer(cols=starts_with('X'),
+               names_to="date",
+               names_prefix = "X",
+               values_to="cases") %>%
+  select(-c('Lat', 'Long_'))
+pivoted_deaths <- us_deaths %>%
+  pivot_longer(cols=starts_with('X'),
+               names_to="date",
+               names_prefix = "X",
+               values_to="deaths") %>%
+  select(-c('Lat', 'Long_','UID','iso2','iso3','code3','FIPS')) 
+florida <- pivoted_cases %>%
+  full_join(pivoted_deaths) %>%
+  mutate(date = mdy(date)) %>%
+  filter(cases > 0,Province_State=='Florida',Admin2 != "Unassigned")
+summary(florida)
+```
+
+# Analysis and Visualization
+
+Now let's look at what values we have in our data:
+
+```{r head}
+head(florida)
+```
+
+Let's summarize the data and see total cases/deaths by county:
+
+```{r pie}
+county_counts <- florida %>%
+  group_by(Admin2) %>%
+  summarize(cases=max(cases),deaths=max(deaths),population=max(Population)) %>%
+  mutate(deaths_per_thousand = deaths * 1000 / population) %>%
+  mutate(cases_per_thousand = cases * 1000 / population) %>%
+  select(Admin2, cases, deaths, cases_per_thousand, deaths_per_thousand, population) 
+ordered_county_counts <- county_counts[order(county_counts$cases),]
+dotchart(ordered_county_counts$cases,main = "Cases by Florida Country",labels = ordered_county_counts$Admin2, cex=0.4)
+```
+
+We can see that Miami-Dade had the highest number of cases but if we look at the same data adjusted for population, then we will see a difference in the data.
+
+```{r plot2}
+ordered_county_counts <- county_counts[order(county_counts$cases_per_thousand),]
+dotchart(ordered_county_counts$cases_per_thousand,main = "Cases (per 1000) by Florida Country",labels=ordered_county_counts$Admin2, cex=0.4)
+```
+
+This shows that we would want to use cases per 1000 as a more representative marker to compare to the rest of the state.
+
+Let's also build a linear model.
+
+```{r model}
+linearMod <- lm(deaths ~ cases,data=florida)
+
+summary(linearMod)
+```
+
+The Miami Dade curfew ended on April 12,2021 so we are interested in data after that point.
+
+Let's just graph the total cases in Miami Dade after that date.
+
+```{r miami_timechart}
+miami_data <- florida %>%
+  filter(Admin2=="Miami-Dade",date >= '2021-04-12')
+ggplot(miami_data, aes(x=date, y=cases)) +
+  geom_line() + 
+  xlab("")
+```
+
+Now let's add the rest of Florida to the graph:
+```{r timechart}
+chart_data <- florida %>%
+  filter(date >= '2021-04-12') %>%
+  mutate(County=ifelse(Admin2=="Miami-Dade","Miami-Dade","Other")) %>%
+  group_by(County,date) %>%
+  summarize(cases=max(cases),deaths=max(deaths),population=max(Population)) %>%
+  mutate(deaths_per_thousand = deaths * 1000 / population) %>%
+  mutate(cases_per_thousand = cases * 1000 / population) %>%
+  select(County,date, cases, deaths, cases_per_thousand, deaths_per_thousand, population) 
+ggplot(chart_data, aes(x = date, y = cases_per_thousand)) + 
+  geom_line(aes(color = County, linetype = County)) + 
+  scale_color_manual(values = c("darkred", "steelblue")) +
+  scale_y_log10()
+```
+
+
+# Conclusion and Bias
+When we look at the data graphed together, we dont see a huge difference in the curves, so we can answer the question with No.
+
+In terms of Bias, I thought that we would see a jump going in, but I didn't let it impact where I was going with the data. I think further analyis on the rate of change in cases might be warranted to see if there are any other anomalies.
+
+# Session Info
+```{r sessioninfo}
+sessionInfo()
+```

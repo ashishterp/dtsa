@@ -1,0 +1,112 @@
+---
+title: "DTSA 5301 - NYPD Shooting Incident Data Report"
+author: "Ashish Bhutiani"
+date: "6/20/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+options(width = 80)
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE,tidy.opts=list(width.cutoff=60), size="small")
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+```
+
+# Question
+
+Are shootings involving younger people more prevalent in different boroughs within New York City?
+
+# Data Source and Summary
+
+In order to attempt to answer this question, we will be using a dataset provided by data.gov. This dataset is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. 
+
+The URL for the dataset that will be loading in is: https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+Each record is labeled by an Incident key, and originally contains the following information on the shooting:
+
+* The date of the shooting
+* The time the shooting occurred
+* Which boro the shooting occured in
+* The NYPD Precinct Number
+* The Jurisdiction Code
+* A description of the location
+* A Statistical murder flag
+* The Perpetrator’s age group
+* The Perpetrator’s Sex
+* The Perpetrator’s Race
+* The Victim’s age group
+* The Victim’s Sex
+* The Victim’s Race
+* The X coordinate
+* The Y coordinate
+* The Latitude
+* The Longitude
+* The longitude and latitude point
+
+```{r dataload}
+dataset_url  = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+dataset <- read.csv(dataset_url)
+summary(dataset)
+```
+
+
+# Data Cleanup
+
+As we can see from the summary, there are a lot of columns in this dataset that we don't need. For our analysis, we need the boro and the victim's age group, but we can also keep the date, time, and murder flag for more information.
+
+We will also rename the date time, and murder flag columns and do some type conversion for those fields as well. The cleaned dataset summary now looks like this:
+
+```{r data_clean}
+cleaned_dataset <- dataset %>% 
+  select(OCCUR_DATE, OCCUR_TIME, BORO, VIC_AGE_GROUP, STATISTICAL_MURDER_FLAG) %>%
+  rename(DATE ='OCCUR_DATE',
+         TIME ='OCCUR_TIME',
+         MURDER_FLAG ='STATISTICAL_MURDER_FLAG') %>%
+  mutate(DATE = mdy(DATE),
+         MURDER_FLAG = as.logical(MURDER_FLAG))
+summary(cleaned_dataset)
+```
+
+# Analysis and Visualization
+
+Now let's look at what values we have in our data:
+
+```{r head}
+head(cleaned_dataset)
+```
+
+Let's see what values are in VIC_AGE_GROUP field by using a pie chart:
+
+```{r pie}
+age_group_counts <- count(cleaned_dataset, VIC_AGE_GROUP = cleaned_dataset$VIC_AGE_GROUP)
+pie(age_group_counts$n,main = "Shootings per Age Group",labels = age_group_counts$VIC_AGE_GROUP)
+```
+
+For our purposes we are only going to look at the Under 18 Age Group (< 18), so let's filter our dataset and see what the breakdown by boro is.
+
+``` {r filter}
+under18 <- filter(cleaned_dataset,cleaned_dataset$VIC_AGE_GROUP == "<18")
+under18_counts <- count(under18, BORO = under18$BORO)
+barplot(under18_counts$n,main = "Shootings of Under 18 Victims by Boro", names.arg=under18_counts$BORO,cex.names = 0.6)
+```
+
+This shows that as absolute number, Brooklyn had the most shootings of children as a Boro, but to really see if those shootings are more prevalent, we need to see how these numbers compare to the total shootings in the boro, so we can do a percentage analysis.
+
+``` {r percent}
+boro_counts <- count(cleaned_dataset, BORO = cleaned_dataset$BORO)
+under18_counts$total_shootings <- boro_counts$n
+under18_counts <- transform(under18_counts,perc=n/total_shootings*100)
+under18_counts
+barplot(under18_counts$perc,main = "Percent of Shootings impacting Under 18 Victims by Boro", names.arg=under18_counts$BORO,cex.names = 0.6)
+```
+
+# Conclusion and Bias
+When we accounted for the total number of shootings, we see that the large differences from the raw numbers go away and Brooklyn isn't as bad as it first seemed. Queens has the lowest percentage at 8%.
+
+In terms of Bias, I didn't have a preconceived ideas of where the data would take me, but I think further analyis on the population differences between the boros might prove that Queens isn't safer if for example it has less kids as a whole. It would be an interesting discussion in the future.
+
+# Session Info
+```{r sessioninfo}
+sessionInfo()
+```
